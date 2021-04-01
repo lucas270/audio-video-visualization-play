@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="keywords" contect="Web Audio API">
+    <title>Web Audio API ，可视化音浪学习</title>
+
+    <style>
+        #canvasTwo {
+            border: 1px solid #ddd;
+            display: block;
+            /* 这样设置宽高，画出来不行，柱条不在底部 */
+            width: 640px; 
+            height: 400px;
+        }
+    </style>
+</head>
+
+<body>
+    <input type="file" id="uploadedFile"></input>
+    <canvas id="canvasTwo" width="640" height="400"></canvas>
+    <script type="text/javascript">
+        let audioInput = document.getElementById('uploadedFile');
+        let canvas = document.getElementById('canvasTwo');
+        let audioContext, file;
+
+        //实例化一个音频类型window.AudioContext
+        function windowAudioContext() {
+            //下面这些是为了统一Chrome和Firefox的AudioContext
+            window.AudioContext = window.AudioContext || window.webkitAudioContext || window.mozAudioContext || window.msAudioContext;
+            window.requestAnimationFrame = window.requestAnimationFrame || window.webkitRequestAnimationFrame || window.mozRequestAnimationFrame || window.msRequestAnimationFrame;
+            window.cancelAnimationFrame = window.cancelAnimationFrame || window.webkitCancelAnimationFrame || window.mozCancelAnimationFrame || window.msCancelAnimationFrame;
+            try {
+                audioContext = new AudioContext();
+            } catch (e) {
+                console.log('您的浏览器不支持 AudioContext,信息:' + e);
+            }
+        }
+        //调用实例化AudioContext
+        windowAudioContext();
+
+        /*
+            方式二：使用网络请求获取音频，视频
+            var xhr = new XMLHttpRequest(); 
+            xhr.open('GET', 'audio/music1.mp3');
+            // 将responseType设为arraybuffer,二进制数据
+            xhr.responseType = "arraybuffer";
+            // 获取完成，对音频进一步操作，解码
+            xhr.onload = function() {
+                var audioData = xhr.response;
+                var source = audioContext.createBufferSource();
+                .....
+            }
+        */
+
+        // 方式一：用Input添加文件，获取音频，视频
+        audioInput.onchange = function () {
+            file = audioInput.files[0]
+            _start()
+        }
+
+        function _start() {
+            let fr = new FileReader();
+            fr.readAsArrayBuffer(file);
+            fr.onload = function (e) {
+                var fileResult = e.target.result;
+                if (audioContext === null) {
+                    return;
+                }
+                // 解码音频，分析音频
+                audioContext.decodeAudioData(fileResult, function (buffer) {
+                    getBufferSouce(audioContext, buffer);
+                }, function (e) {
+                    console.log(e);
+                });
+            };
+            fr.onerror = function (e) {
+                console.log('!Fail to read the file', e);
+            };
+        }
+
+        function getBufferSouce(audioContext, buffer) {
+            var audioBufferSouceNode = audioContext.createBufferSource()
+                , analyser = audioContext.createAnalyser();
+            // 连接音频    
+            audioBufferSouceNode.connect(analyser);
+            analyser.connect(audioContext.destination);
+            audioBufferSouceNode.buffer = buffer;
+            if (!audioBufferSouceNode.start) {
+                audioBufferSouceNode.start = audioBufferSouceNode.noteOn
+                audioBufferSouceNode.stop = audioBufferSouceNode.noteOff
+            }
+            audioBufferSouceNode.start(0);
+            drawSpectrum(analyser);
+        }
+
+        //频谱效果处理
+        function drawSpectrum(analyser) {
+            //颜色数组
+            var colorArray = ['#f82466', '#00FFFF', '#AFFF7C', '#FFAA6A', '#6AD5FF', '#D26AFF', '#FF6AE6', '#FF6AB8', '#FF6A6A', "#7091FF"];
+            //颜色随机数
+            var colorRandom = Math.floor(Math.random() * colorArray.length);
+            //未设置将随机选取颜色
+            var colour = colorArray[colorRandom];
+            // line(analyser,colour);
+            bar(analyser, colour);
+            // circular(analyser, colour);
+
+        }
+        function line(analyser, colour) {
+            var width = canvas.width,
+                height = canvas.height,
+                ctx = canvas.getContext('2d');
+            var drawLine = function () {
+                var array = new Uint8Array(128); //长度为128无符号数组用于保存getByteFrequencyData返回的频域数据
+                analyser.getByteFrequencyData(array); //以下是根据频率数据画图
+                ctx.clearRect(0, 0, width, height); //清除画布
+                ctx.strokeStyle = colour;
+                ctx.lineWidth = 2; //线粗细
+                ctx.beginPath();
+
+                for (var i = 0; i < (array.length); i++) {
+                    var value = array[i];
+                    //绘制线根据能量值变化
+                    ctx.lineTo(i * 9, value + 150);
+
+                };
+                ctx.stroke();
+                ctx.closePath();
+                requestAnimationFrame(drawLine);
+            };
+            requestAnimationFrame(drawLine);
+        }
+
+        //条状效果
+        function bar(analyser, colour) {
+            var cwidth = canvas.width,
+                cheight = canvas.height - 2,
+                meterWidth = 10, //频谱条宽度
+                capHeight = 2,
+                capStyle = '#FFFFFF',
+                meterNum = 1000 / (10 + 2), //频谱条数量
+                ctx = canvas.getContext('2d'),
+                capYPositionArray = [], //将上一画面各帽头的位置保存到这个数组
+                gradient = ctx.createLinearGradient(0, 0, 0, 300);
+            //渐变颜色
+            gradient.addColorStop(1, colour);
+            gradient.addColorStop(0.5, '#ff0');
+            gradient.addColorStop(0, '#f00');
+            var drawMeter = function () {
+                var array = new Uint8Array(analyser.frequencyBinCount);
+                analyser.getByteFrequencyData(array);
+                var step = Math.round(array.length / meterNum); //计算采样步长
+                ctx.clearRect(0, 0, cwidth, cheight);
+                for (var i = 0; i < meterNum; i++) {
+                    var value = array[i * step]; //获取当前能量值
+                    if (capYPositionArray.length < Math.round(meterNum)) {
+                        capYPositionArray.push(value); //初始化保存帽头位置的数组，将第一个画面的数据压入其中
+                    };
+                    ctx.fillStyle = capStyle;
+                    //开始绘制帽头
+                    if (value < capYPositionArray[i]) { //如果当前值小于之前值
+                        ctx.fillRect(i * 12, cheight - (--capYPositionArray[i]), meterWidth, capHeight); //则使用前一次保存的值来绘制帽头
+                    } else {
+                        ctx.fillRect(i * 12, cheight - value, meterWidth, capHeight); //否则使用当前值直接绘制
+                        capYPositionArray[i] = value;
+                    };
+                    //开始绘制频谱条
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(i * 12, cheight - value + capHeight, meterWidth, cheight);
+                }
+                requestAnimationFrame(drawMeter);
+            }
+            requestAnimationFrame(drawMeter);
+        }
+
+        //16进制颜色转为RGB格式,传入16进制颜色代码与透明度
+        function colorRgb(color, opacity) {
+            var reg = /^#([0-9a-fA-f]{3}|[0-9a-fA-f]{6})$/; //十六进制颜色值的正则表达式
+            opacity = opacity < 0 ? 0 : opacity; //颜色范围控制
+            opacity = opacity > 1 ? 1 : opacity;
+            if (color && reg.test(color)) {
+                if (color.length === 4) {
+                    var sColorNew = "#";
+                    for (var i = 1; i < 4; i += 1) {
+                        sColorNew += color.slice(i, i + 1).concat(color.slice(i, i + 1));
+                    }
+                    color = sColorNew;
+                }
+                //处理六位的颜色值
+                var sColorChange = [];
+                for (var i = 1; i < 7; i += 2) {
+                    sColorChange.push(parseInt("0x" + color.slice(i, i + 2)));
+                }
+                return "rgba(" + sColorChange.join(",") + "," + opacity + ")";
+            } else {
+                return color;
+            }
+        }
+
+        //环形声波
+        function circular(analyser,colour) {
+            var width = canvas.width,
+                height = canvas.height,
+                ctx = canvas.getContext('2d');
+            var drawCircular = function () {
+                var array = new Uint8Array(128); //长度为128无符号数组用于保存getByteFrequencyData返回的频域数据
+                analyser.getByteFrequencyData(array); //以下是根据频率数据画图
+                ctx.clearRect(0, 0, width, height); //清除画布
+                for (var i = 0; i < (array.length); i++) {
+                    var value = array[i];
+                    ctx.beginPath();
+                    ctx.arc(width / 2, height / 2, value * 0.8, 0, 400, false);
+                    ctx.lineWidth = 2; //线圈粗细
+                    ctx.strokeStyle = (1, colorRgb(colour, value / 1000)); //颜色透明度随值变化
+                    ctx.stroke(); //画空心圆
+                    ctx.closePath();
+                }
+                requestAnimationFrame(drawCircular);
+            };
+            requestAnimationFrame(drawCircular);
+        }
+    </script>
+</body>
+
+</html>

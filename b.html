@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="Author" contect="GabrielChen">
+    <meta name="keywords" contect="Web Audio API">
+    <title>Web Audio API，可视化音浪学习(直接用video,audio标签)</title>
+
+    <style>
+        #canvas {
+            border: 1px solid #ddd;
+            background: #d6acac;
+            display: block;
+        }
+        video{
+            width: 70%;
+            height: 260px;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- <audio src="./abc.mp4" controls="controls" id="audio">你的浏览器不支持audio标签</audio> -->
+    <video id="audio" controls="" autoplay="true"  controlslist="nodownload" src="./sdd.mp4">
+        你的浏览器不支持video标签
+    </video>
+    <canvas id="canvas" width="640" height="500"></canvas>
+    <!--<button id="play">播放</button>-->
+
+
+    <script type="text/javascript">
+        let btn = document.getElementById('play')
+        let audio = document.getElementById('audio')
+        let canvas = document.getElementById('canvas')
+        let audioContext;
+        let isHandle = false; //记录是否处理过音频,保证createMediaElementSource只创建一次,多次创建会出现错误
+
+        audio.addEventListener('play', function () {
+            if (!isHandle) {
+                playHandle()
+            }
+
+        })
+        audio.addEventListener('pause', function () {
+        })
+        // btn.onclick=function(){
+        //     audio.play()
+        //     if (!isHandle) {
+        //        playHandle()
+        //    }
+        // }
+        //实例化一个音频类型window.AudioContext
+        function windowAudioContext() {
+            //下面这些是为了统一Chrome和Firefox的AudioContext
+            window.AudioContext = window.AudioContext || window.webkitAudioContext || window.mozAudioContext || window.msAudioContext;
+            window.requestAnimationFrame = window.requestAnimationFrame || window.webkitRequestAnimationFrame || window.mozRequestAnimationFrame || window.msRequestAnimationFrame;
+            window.cancelAnimationFrame = window.cancelAnimationFrame || window.webkitCancelAnimationFrame || window.mozCancelAnimationFrame || window.msCancelAnimationFrame;
+            try {
+                audioContext = new AudioContext();
+            } catch (e) {
+                console.log('您的浏览器不支持 AudioContext,信息:' + e);
+            }
+        }
+        //调用实例化AudioContext
+        //   windowAudioContext();
+
+        //播放处理,提取数据
+        function playHandle() {
+            //IE浏览器不绘制频谱
+            if (!!window.ActiveXObject || "ActiveXObject" in window) {
+                return false;
+            }
+            windowAudioContext();
+            var analyser = audioContext.createAnalyser();
+            var playData = audioContext.createMediaElementSource(audio);
+            // 将播放数据与分析器连接
+            playData.connect(analyser);
+            analyser.connect(audioContext.destination);
+            //接下来把分析器传出去创建频谱
+            drawSpectrum(analyser);
+            isHandle = true;
+        }
+
+        //频谱效果处理
+        function drawSpectrum(analyser) {
+            //颜色数组
+            var colorArray = ['#f82466', '#00FFFF', '#AFFF7C', '#FFAA6A', '#6AD5FF', '#D26AFF', '#FF6AE6', '#FF6AB8', '#FF6A6A', "#7091FF"];
+            //颜色随机数
+            var colorRandom = Math.floor(Math.random() * colorArray.length);
+            //未设置将随机选取颜色
+            var colour = colorArray[colorRandom];
+            //  line(analyser,colour);
+            bar(analyser, colour)
+
+        }
+        function line(analyser, colour) {
+            var width = canvas.width,
+                height = canvas.height,
+                ctx = canvas.getContext('2d');
+            var drawLine = function () {
+                var array = new Uint8Array(128); //长度为128无符号数组用于保存getByteFrequencyData返回的频域数据
+                analyser.getByteFrequencyData(array); //以下是根据频率数据画图
+                ctx.clearRect(0, 0, width, height); //清除画布
+                ctx.strokeStyle = colour;
+                ctx.lineWidth = 2; //线粗细
+                ctx.beginPath();
+
+                for (var i = 0; i < (array.length); i++) {
+                    var value = array[i];
+                    //绘制线根据能量值变化
+                    ctx.lineTo(i * 9, value + 150);
+
+                };
+                ctx.stroke();
+                ctx.closePath();
+                requestAnimationFrame(drawLine);
+            };
+            requestAnimationFrame(drawLine);
+        }
+
+        //条状效果
+        function bar(analyser, colour) {
+            var cwidth = canvas.width,
+                cheight = canvas.height - 2,
+                meterWidth = 10, //频谱条宽度
+                capHeight = 2,
+                capStyle = '#FFFFFF',
+                meterNum = 1000 / (10 + 2), //频谱条数量
+                ctx = canvas.getContext('2d'),
+                capYPositionArray = [], //将上一画面各帽头的位置保存到这个数组
+                gradient = ctx.createLinearGradient(0, 0, 0, 300);
+                //渐变颜色
+                gradient.addColorStop(1, colour);
+                gradient.addColorStop(0.5, '#ff0');
+                gradient.addColorStop(0, '#f00');
+            var drawMeter = function () {
+                var array = new Uint8Array(analyser.frequencyBinCount);
+                analyser.getByteFrequencyData(array);
+                var step = Math.round(array.length / meterNum); //计算采样步长
+                ctx.clearRect(0, 0, cwidth, cheight);
+                for (var i = 0; i < meterNum; i++) {
+                    var value = array[i * step]; //获取当前能量值
+                    if (capYPositionArray.length < Math.round(meterNum)) {
+                        capYPositionArray.push(value); //初始化保存帽头位置的数组，将第一个画面的数据压入其中
+                    };
+                    ctx.fillStyle = capStyle;
+                    //开始绘制帽头
+                    if (value < capYPositionArray[i]) { //如果当前值小于之前值
+                        ctx.fillRect(i * 12, cheight - (--capYPositionArray[i]), meterWidth, capHeight); //则使用前一次保存的值来绘制帽头
+                    } else {
+                        ctx.fillRect(i * 12, cheight - value, meterWidth, capHeight); //否则使用当前值直接绘制
+                        capYPositionArray[i] = value;
+                    };
+                    //开始绘制频谱条
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(i * 12, cheight - value + capHeight, meterWidth, cheight);
+                }
+                requestAnimationFrame(drawMeter);
+            }
+            requestAnimationFrame(drawMeter);
+        }
+
+    </script>
+</body>
+
+</html>
